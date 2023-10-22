@@ -1,16 +1,16 @@
 #pragma once
 
 #include <NimBLEDevice.h>
-#include <XboxControllerNotificationParser.h>
+#include <Xbox/XboxControllerNotificationParser.h>
 
-#include <XboxSeriesXHIDReportBuilder_asukiaaa.hpp>
+#include <Xbox/XboxSeriesXHIDReportBuilder.hpp>
 
 // #define XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL Serial
 #ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
 const unsigned long printInterval = 100UL;
 #endif
 
-namespace XboxSeriesXControllerESP32_asukiaaa {
+namespace GamepadControllerESP32 {
 
 static NimBLEUUID uuidServiceGeneral("1801");
 static NimBLEUUID uuidServiceBattery("180f");
@@ -191,14 +191,14 @@ class Core {
   }
 
   void writeHIDReport(
-      const XboxSeriesXHIDReportBuilder_asukiaaa::ReportBase& repo) {
+      const XboxSeriesXHIDReportBuilder::ReportBase& repo) {
     writeHIDReport((uint8_t*)repo.arr8t, repo.arr8tLen);
   }
 
   void writeHIDReport(
-      const XboxSeriesXHIDReportBuilder_asukiaaa::ReportBeforeUnion&
+      const XboxSeriesXHIDReportBuilder::ReportBeforeUnion&
           repoBeforeUnion) {
-    XboxSeriesXHIDReportBuilder_asukiaaa::ReportBase repo;
+    XboxSeriesXHIDReportBuilder::ReportBase repo;
     repo.v = repoBeforeUnion;
     writeHIDReport((uint8_t*)repo.arr8t, repo.arr8tLen);
   }
@@ -543,4 +543,4 @@ class Core {
   }
 };
 
-};  // namespace XboxSeriesXControllerESP32_asukiaaa
+};  // namespace GamepadControllerESP32
