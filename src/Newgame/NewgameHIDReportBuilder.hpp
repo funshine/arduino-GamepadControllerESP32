@@ -1,7 +1,9 @@
 #pragma once
 
+#include "GamepadReportBase.h"
+
 namespace GamepadControllerESP32 {
-namespace XboxSeriesXHIDReportBuilder {
+namespace NewgameHIDReportBuilder {
 
 struct InfoSelect {
   uint8_t center : 1;
@@ -22,7 +24,7 @@ struct InfoPower {
   uint8_t center;
 };
 
-struct ReportBeforeUnion {
+struct NewgameReportBeforeUnion : public ReportBeforeUnion {
   InfoSelect select;
   InfoPower power;
   // value * 0.01 seconds, max 2.55 seconds
@@ -32,15 +34,15 @@ struct ReportBeforeUnion {
   uint8_t countRepeat;
 };
 
-class ReportBase {
+class NewgameReportBase : public ReportBase {
  public:
   static const size_t arr8tLen = 8;
   union {
-    ReportBeforeUnion v;
+    NewgameReportBeforeUnion v;
     uint8_t arr8t[arr8tLen];
   };
 
-  ReportBase() { setFullPowerFor1Sec(); }
+  NewgameReportBase() { setFullPowerFor1Sec(); }
 
   void setFullPowerFor1Sec() {
     v.select.center = true;
@@ -71,5 +73,5 @@ class ReportBase {
   }
 };
 
-};  // namespace XboxSeriesXHIDReportBuilder
+};  // namespace NewgameHIDReportBuilder
 };  // namespace GamepadControllerESP32

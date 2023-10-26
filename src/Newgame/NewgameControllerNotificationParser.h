@@ -4,9 +4,9 @@
 
 namespace GamepadControllerESP32 {
 
-class XboxControllerNotificationParser : public GamepadControllerNotificationParser {
+class NewgameControllerNotificationParser : public GamepadControllerNotificationParser {
  public:
-  XboxControllerNotificationParser();
+  NewgameControllerNotificationParser();
 
   // bool btnA, btnB, btnX, btnY;
   // bool btnShare, btnStart, btnSelect, btnHome;
@@ -24,9 +24,9 @@ class XboxControllerNotificationParser : public GamepadControllerNotificationPar
   uint8_t toArr(uint8_t* data, size_t length);
   String toString();
 
-  static const size_t expectedDataLen = 16;
-  static const uint16_t maxJoy = 0xffff;
-  static const uint16_t maxTrig = 0x3ff;
+  static const size_t expectedDataLen = 9;
+  static const uint16_t maxJoy = 0x80;
+  static const uint16_t maxTrig = 0xff;
 
  private:
   static void convertU16TU8Arr(uint16_t vU16, uint8_t* data);

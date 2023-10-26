@@ -1,12 +1,15 @@
 #pragma once
 
 #include <NimBLEDevice.h>
+
 #include <Xbox/XboxControllerNotificationParser.h>
+#include <Xbox/XboxHIDReportBuilder.hpp>
 
-#include <Xbox/XboxSeriesXHIDReportBuilder.hpp>
+#include <Newgame/NewgameControllerNotificationParser.h>
+#include <Newgame/NewgameHIDReportBuilder.hpp>
 
-// #define XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL Serial
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
+// #define GAMEPAD_CONTROLLER_DEBUG_SERIAL Serial
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
 const unsigned long printInterval = 100UL;
 #endif
 
@@ -43,18 +46,18 @@ class ClientCallbacks : public NimBLEClientCallbacks {
   }
 
   void onConnect(NimBLEClient* pClient) {
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
-    XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println("Connected");
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.println("Connected");
 #endif
     *pConnectionState = ConnectionState::WaitingForFirstNotification;
     // pClient->updateConnParams(120,120,0,60);
   };
 
   void onDisconnect(NimBLEClient* pClient) {
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
-    XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.print(
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.print(
         pClient->getPeerAddress().toString().c_str());
-    XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println(" Disconnected");
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.println(" Disconnected");
 #endif
     *pConnectionState = ConnectionState::Scanning;
     pConnectedClient = nullptr;
@@ -63,27 +66,33 @@ class ClientCallbacks : public NimBLEClientCallbacks {
   /********************* Security handled here **********************
   ****** Note: these are the same return values as defaults ********/
   uint32_t onPassKeyRequest() {
-    // Serial.println("Client Passkey Request");
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.println("Client Passkey Request");
+#endif
     /** return the passkey to send to the server */
     return 0;
   };
 
   bool onConfirmPIN(uint32_t pass_key) {
-    // Serial.print("The passkey YES/NO number: ");
-    // Serial.println(pass_key);
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.print("The passkey YES/NO number: ");
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.println(pass_key);
+#endif
     /** Return false if passkeys don't match. */
     return true;
   };
 
   /** Pairing process complete, we can check the results in ble_gap_conn_desc */
   void onAuthenticationComplete(ble_gap_conn_desc* desc) {
-    // Serial.println("onAuthenticationComplete");
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.println("onAuthenticationComplete");
     if (!desc->sec_state.encrypted) {
-      // Serial.println("Encrypt connection failed - disconnecting");
+      GAMEPAD_CONTROLLER_DEBUG_SERIAL.println("Encrypt connection failed - disconnecting");
       /** Find the client with the connection handle provided in desc */
       NimBLEDevice::getClientByID(desc->conn_handle)->disconnect();
       return;
     }
+#endif
   };
 };
 
@@ -103,14 +112,14 @@ class AdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks {
   NimBLEAddress* targetDeviceAddress = nullptr;
   ConnectionState* pConnectionState;
   void onResult(NimBLEAdvertisedDevice* advertisedDevice) {
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
-    XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.print("Advertised Device found: ");
-    XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println(
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.print("Advertised Device found: ");
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.println(
         advertisedDevice->toString().c_str());
-    XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.printf(
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.printf(
         "name:%s, address:%s\n", advertisedDevice->getName().c_str(),
         advertisedDevice->getAddress().toString().c_str());
-    XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.printf(
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.printf(
         "uuidService:%s\n",
         advertisedDevice->haveServiceUUID()
             ? advertisedDevice->getServiceUUID().toString().c_str()
@@ -128,8 +137,8 @@ class AdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks {
          advertisedDevice->getServiceUUID().equals(uuidServiceHid)))
     // if (advertisedDevice->isAdvertisingService(uuidServiceHid))
     {
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
-      XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println("Found target");
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+      GAMEPAD_CONTROLLER_DEBUG_SERIAL.println("Found target");
 #endif
       /** stop scan before connecting */
       // NimBLEDevice::getScan()->stop();
@@ -140,12 +149,15 @@ class AdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks {
   };
 };
 
-class Core {
+class GamepadController {
  public:
-  Core(String targetDeviceAddress = "") {
+  GamepadController(String targetDeviceAddress = "",
+    GamepadControllerNotificationParser* parser = new XboxControllerNotificationParser()) 
+    : gamepadNotif(parser) {
     this->advDeviceCBs =
         new AdvertisedDeviceCallbacks(targetDeviceAddress, &connectionState);
     this->clientCBs = new ClientCallbacks(&connectionState);
+    // this->gamepadNotif = new XboxControllerNotificationParser();
   }
 
   AdvertisedDeviceCallbacks* advDeviceCBs;
@@ -153,6 +165,8 @@ class Core {
   uint8_t battery = 0;
   static const int deviceAddressLen = 6;
   uint8_t deviceAddressArr[deviceAddressLen];
+
+  GamepadControllerNotificationParser* gamepadNotif;
 
   void begin() {
     NimBLEDevice::setScanFilterMode(CONFIG_BTDM_SCAN_DUPL_TYPE_DEVICE);
@@ -165,22 +179,22 @@ class Core {
 
   void writeHIDReport(uint8_t* dataArr, size_t dataLen) {
     if (pConnectedClient == nullptr) {
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
-      XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println("no connnected client");
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+      GAMEPAD_CONTROLLER_DEBUG_SERIAL.println("no connnected client");
 #endif
       return;
     }
     NimBLEClient* pClient = pConnectedClient;
     auto pService = pClient->getService(uuidServiceHid);
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
-    XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println(pService->toString().c_str());
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.println(pService->toString().c_str());
 #endif
     for (auto pChara : *pService->getCharacteristics()) {
       if (pChara->canWrite()) {
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
-        XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println(
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+        GAMEPAD_CONTROLLER_DEBUG_SERIAL.println(
             "canWrite " + String(pChara->canWrite()));
-        XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println(
+        GAMEPAD_CONTROLLER_DEBUG_SERIAL.println(
             pChara->toString().c_str());
         writeWithComment(pChara, dataArr, dataLen);
 #else
@@ -191,14 +205,22 @@ class Core {
   }
 
   void writeHIDReport(
-      const XboxSeriesXHIDReportBuilder::ReportBase& repo) {
+      const ReportBase& repo) {
     writeHIDReport((uint8_t*)repo.arr8t, repo.arr8tLen);
   }
 
   void writeHIDReport(
-      const XboxSeriesXHIDReportBuilder::ReportBeforeUnion&
+      const XboxHIDReportBuilder::XboxReportBeforeUnion&
           repoBeforeUnion) {
-    XboxSeriesXHIDReportBuilder::ReportBase repo;
+    XboxHIDReportBuilder::XboxReportBase repo;
+    repo.v = repoBeforeUnion;
+    writeHIDReport((uint8_t*)repo.arr8t, repo.arr8tLen);
+  }
+
+  void writeHIDReport(
+      const NewgameHIDReportBuilder::NewgameReportBeforeUnion&
+          repoBeforeUnion) {
+    NewgameHIDReportBuilder::NewgameReportBase repo;
     repo.v = repoBeforeUnion;
     writeHIDReport((uint8_t*)repo.arr8t, repo.arr8tLen);
   }
@@ -241,14 +263,12 @@ class Core {
     // pScan->setActiveScan(true);
     pScan->setInterval(97);
     pScan->setWindow(97);
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
-    XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println("Start scan");
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.println("Start scan");
 #endif
     // assign scanCompleteCB to scan on other thread
-    pScan->start(scanTime, &Core::scanCompleteCB, false);
+    pScan->start(scanTime, &GamepadController::scanCompleteCB, false);
   }
-
-  XboxControllerNotificationParser xboxNotif;
 
   bool isWaitingForFirstNotification() {
     return connectionState == ConnectionState::WaitingForFirstNotification;
@@ -269,18 +289,18 @@ class Core {
   unsigned long retryIntervalMs = 100;
   NimBLEClient* pClient = nullptr;
 
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
   static void writeWithComment(NimBLERemoteCharacteristic* pChara,
                                uint8_t* data, size_t len) {
-    Serial.println("send(print from addr 0) ");
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.println("send(print from addr 0) ");
     for (int i = 0; i < len; ++i) {
-      Serial.print(data[i]);
-      Serial.print(" ");
+      GAMEPAD_CONTROLLER_DEBUG_SERIAL.print(data[i]);
+      GAMEPAD_CONTROLLER_DEBUG_SERIAL.print(" ");
     }
     if (pChara->writeValue(data, len, true)) {
-      XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println("suceeded in writing");
+      GAMEPAD_CONTROLLER_DEBUG_SERIAL.println("suceeded in writing");
     } else {
-      XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println("failed writing");
+      GAMEPAD_CONTROLLER_DEBUG_SERIAL.println("failed writing");
     }
   }
 #endif
@@ -290,7 +310,7 @@ class Core {
     if (str.size() == 0) {
       str = pChara->readValue();
     }
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
     printValue(str);
 #endif
   }
@@ -320,8 +340,8 @@ class Core {
     /** No client to reuse? Create a new one. */
     if (!pClient) {
       if (NimBLEDevice::getClientListSize() >= NIMBLE_MAX_CONNECTIONS) {
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
-        XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println(
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+        GAMEPAD_CONTROLLER_DEBUG_SERIAL.println(
             "Max clients reached - no more connections available");
 #endif
         return false;
@@ -329,8 +349,8 @@ class Core {
 
       pClient = NimBLEDevice::createClient();
 
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
-      XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println("New client created");
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+      GAMEPAD_CONTROLLER_DEBUG_SERIAL.println("New client created");
 #endif
 
       // default values
@@ -351,8 +371,8 @@ class Core {
       if (retryCount <= 0) {
         return false;
       } else {
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
-        XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println("Try connection. left: " +
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+        GAMEPAD_CONTROLLER_DEBUG_SERIAL.println("Try connection. left: " +
                                                       String(retryCount));
 #endif
       }
@@ -360,16 +380,18 @@ class Core {
       // NimBLEDevice::getScan()->stop();
       // pClient->disconnect();
       delay(retryIntervalMs);
-      // Serial.println(pClient->toString().c_str());
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+      GAMEPAD_CONTROLLER_DEBUG_SERIAL.println(pClient->toString().c_str());
+#endif
       pClient->connect(true);
       --retryCount;
     }
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
-    XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.print("Connected to: ");
-    XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println(
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.print("Connected to: ");
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.println(
         pClient->getPeerAddress().toString().c_str());
-    XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.print("RSSI: ");
-    XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println(pClient->getRssi());
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.print("RSSI: ");
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.println(pClient->getRssi());
 #endif
 
     // pClient->discoverAttributes();
@@ -379,8 +401,8 @@ class Core {
       return result;
     }
 
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
-    XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println("Done with this device!");
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.println("Done with this device!");
 #endif
     pConnectedClient = pClient;
     return true;
@@ -394,8 +416,8 @@ class Core {
       if (!sUuid.equals(uuidServiceHid) && !sUuid.equals(uuidServiceBattery)) {
         continue;  // skip
       }
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
-      XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println(
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+      GAMEPAD_CONTROLLER_DEBUG_SERIAL.println(
           pService->toString().c_str());
 #endif
       for (auto pChara : *pService->getCharacteristics(true)) {
@@ -407,42 +429,42 @@ class Core {
     return true;
   }
 
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
   void charaPrintId(NimBLERemoteCharacteristic* pChara) {
-    XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.printf(
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.printf(
         "s:%s c:%s h:%d",
         pChara->getRemoteService()->getUUID().toString().c_str(),
         pChara->getUUID().toString().c_str(), pChara->getHandle());
   }
 
-  static void printValue(std::__cxx11::string str) {
-    XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.printf("str: %s\n", str.c_str());
-    XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.printf("hex:");
+  static void printValue(std::string str) {
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.printf("str: %s\n", str.c_str());
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.printf("hex:");
     for (auto v : str) {
-      XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.printf(" %02x", v);
+      GAMEPAD_CONTROLLER_DEBUG_SERIAL.printf(" %02x", v);
     }
-    XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println("");
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.println("");
   }
 #endif
 
   void charaHandle(NimBLERemoteCharacteristic* pChara) {
     if (pChara->canWrite()) {
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
       charaPrintId(pChara);
-      XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println(" canWrite");
+      GAMEPAD_CONTROLLER_DEBUG_SERIAL.println(" canWrite");
 #endif
     }
     if (pChara->canRead()) {
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
       charaPrintId(pChara);
-      XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println(" canRead");
+      GAMEPAD_CONTROLLER_DEBUG_SERIAL.println(" canRead");
 #endif
       // Reading value is required for subscribe
       auto str = pChara->readValue();
       if (str.size() == 0) {
         str = pChara->readValue();
       }
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
       printValue(str);
 #endif
     }
@@ -450,23 +472,23 @@ class Core {
 
   void charaSubscribeNotification(NimBLERemoteCharacteristic* pChara) {
     if (pChara->canNotify()) {
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
       charaPrintId(pChara);
-      XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println(" canNotify ");
+      GAMEPAD_CONTROLLER_DEBUG_SERIAL.println(" canNotify ");
 #endif
       if (pChara->subscribe(
               true,
-              std::bind(&Core::notifyCB, this, std::placeholders::_1,
+              std::bind(&GamepadController::notifyCB, this, std::placeholders::_1,
                         std::placeholders::_2, std::placeholders::_3,
                         std::placeholders::_4),
               true)) {
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
-        XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println(
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+        GAMEPAD_CONTROLLER_DEBUG_SERIAL.println(
             "succeeded in subscribing");
 #endif
       } else {
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
-        XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println("failed subscribing");
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+        GAMEPAD_CONTROLLER_DEBUG_SERIAL.println("failed subscribing");
 #endif
       }
     }
@@ -476,14 +498,14 @@ class Core {
                 uint8_t* pData, size_t length, bool isNotify) {
     auto sUuid = pRemoteCharacteristic->getRemoteService()->getUUID();
     if (connectionState != ConnectionState::Connected) {
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
-      XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println(
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+      GAMEPAD_CONTROLLER_DEBUG_SERIAL.println(
           "Received first notification");
 #endif
       connectionState = ConnectionState::Connected;
     }
     if (sUuid.equals(uuidServiceHid)) {
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
       static bool isPrinting = false;
       static unsigned long printedAt = 0;
       if (isPrinting || millis() - printedAt < printInterval) return;
@@ -499,46 +521,46 @@ class Core {
       str +=
           ", Characteristic = " + std::string(pRemoteCharacteristic->getUUID());
       // str += ", Value = " + std::string((char*)pData, length);
-      XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println(str.c_str());
-      XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.print("value: ");
+      GAMEPAD_CONTROLLER_DEBUG_SERIAL.println(str.c_str());
+      GAMEPAD_CONTROLLER_DEBUG_SERIAL.print("value: ");
       for (int i = 0; i < length; ++i) {
-        XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.printf(" %02x", pData[i]);
+        GAMEPAD_CONTROLLER_DEBUG_SERIAL.printf(" %02x", pData[i]);
       }
-      XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println("");
+      GAMEPAD_CONTROLLER_DEBUG_SERIAL.println("");
 #endif
-      xboxNotif.update(pData, length);
+      gamepadNotif->update(pData, length);
       receivedNotificationAt = millis();
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
-      // XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.print(xboxNotif.toString());
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+      // GAMEPAD_CONTROLLER_DEBUG_SERIAL.print(gamepadNotif->toString());
       printedAt = millis();
       isPrinting = false;
 #endif
     } else {
       if (sUuid.equals(uuidServiceBattery)) {
         battery = pData[0];
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
-        XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println("battery notification");
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+        GAMEPAD_CONTROLLER_DEBUG_SERIAL.println("battery notification");
 #endif
       } else {
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
-        XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.printf("s:%s",
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+        GAMEPAD_CONTROLLER_DEBUG_SERIAL.printf("s:%s",
                                                      sUuid.toString().c_str());
-        XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println(
+        GAMEPAD_CONTROLLER_DEBUG_SERIAL.println(
             "not handled notification");
 #endif
       }
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
       for (int i = 0; i < length; ++i) {
-        XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.printf(" %02x", pData[i]);
+        GAMEPAD_CONTROLLER_DEBUG_SERIAL.printf(" %02x", pData[i]);
       }
-      XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println("");
+      GAMEPAD_CONTROLLER_DEBUG_SERIAL.println("");
 #endif
     }
   }
 
   static void scanCompleteCB(NimBLEScanResults results) {
-#ifdef XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL
-    XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL.println("Scan Ended");
+#ifdef GAMEPAD_CONTROLLER_DEBUG_SERIAL
+    GAMEPAD_CONTROLLER_DEBUG_SERIAL.println("Scan Ended");
 #endif
   }
 };
